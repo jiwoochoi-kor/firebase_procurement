@@ -25,16 +25,13 @@
     previews = {
       enable = true;
       previews = {
-        # web = {
-        #   # Example: run "npm run dev" with PORT set to IDX's defined port for previews,
-        #   # and show it in IDX's web preview panel
-        #   command = ["npm" "run" "dev"];
-        #   manager = "web";
-        #   env = {
-        #     # Environment variables to set for your server
-        #     PORT = "$PORT";
-        #   };
-        # };
+        web = {
+          command = ["streamlit" "run" "main.py" "--server.port" "$PORT" "--server.enableCORS" "false"];
+          manager = "web";
+          env = {
+            PORT = "$PORT";
+          };
+        };
       };
     };
     # Workspace lifecycle hooks
@@ -43,13 +40,15 @@
       onCreate = {
         # Example: install JS dependencies from NPM
         # npm-install = "npm install";
+        install-dependencies = "uv venv .venv && source .venv/bin/activate && uv pip install -r requirements.txt";
         # Open editors for the following files by default, if they exist:
-        default.openFiles = [ "README.md" ];
+        default.openFiles = [ "main.py" "PRD.md" ];
       };
       # Runs when the workspace is (re)started
       onStart = {
         # Example: start a background task to watch and re-build backend code
         # watch-backend = "npm run watch-backend";
+        install-dependencies = "source .venv/bin/activate && uv pip install -r requirements.txt";
       };
     };
   };

@@ -83,19 +83,38 @@ def main():
         avg_purchase = filtered_df['전체 구매금액'].mean()
         col3.metric("연평균 구매금액", f"{avg_purchase:,.0f} 원")
 
-        # 4. (가상) 품목군별 평균 입고 주기
-        # 데이터에 날짜 정보가 없으므로 가상의 로직 적용
-        # 예: 금액이 클수록 주기가 짧다고 가정하거나 고정값 사용
-        st.markdown("""
-        <style>
-        .small-font {
-            font-size:12px;
-            color: gray;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        col4.metric("평균 입고 주기 (추정)", "약 45일")
-        col4.markdown("<p class='small-font'>*데이터 부재로 인한 추정치</p>", unsafe_allow_html=True)
+        # 4. 품목군별 평균 입고 주기 (구매금액 기반 추정)
+        # 로직: 구매금액이 높을수록 주기가 짧다 (더 자주 입고)
+        # 기준: 연간 1000만원 -> 30일 주기
+        # 주기 = (기준금액 / (해당 품목 평균 구매액)) * 기준주기
+        
+        category_cols = ['ETC', 'CH', '건기식', '글로벌', '기타']
+        valid_cat_cols = [c for c in category_cols if c in filtered_df.columns]
+        
+        estimated_cycles = {}
+        if valid_cat_cols:
+            base_amount = 1000  # 기준 금액 (단위: 원, 데이터 스케일에 맞게 조정 필요)
+            base_cycle = 30     # 기준 주기 (일)
+            
+            # 전체 데이터에서의 평균값 계산 (필터링 전 전체 기준)
+            mean_vals = df[valid_cat_cols].mean()
+            
+            for cat in valid_cat_cols:
+                avg_val = mean_vals[cat]
+                if avg_val > 0:
+                    # 금액이 클수록 주기가 작아지도록 역수 관계 설정
+                    # (스케일 조정: 전체 평균의 평균값으로 정규화)
+                    normalized_val = avg_val / mean_vals.mean()
+                    cycle = base_cycle / normalized_val if normalized_val > 0 else 90
+                    estimated_cycles[cat] = round(max(5, min(cycle, 180))) # 5일 ~ 180일 사이로 제한
+                else:
+                    estimated_cycles[cat] = 0
+
+            avg_cycle_all = sum(estimated_cycles.values()) / len(estimated_cycles) if estimated_cycles else 0
+            col4.metric("평균 입고 주기 (추정)", f"약 {avg_cycle_all:.0f}일")
+            col4.markdown("<p style='font-size:12px; color:gray'>*구매금액 기반 추정치 (금액↑ 주기↓)</p>", unsafe_allow_html=True)
+        else:
+             col4.metric("평균 입고 주기", "-")
 
         st.markdown("---")
 
@@ -112,14 +131,9 @@ def main():
             ).properties(height=300)
             st.altair_chart(chart_trend, use_container_width=True)
 
-        # 2. 품목군별 비중 (파이 차트 대체 -> 누적 바 차트 or 정규화된 바 차트)
-        # Streamlit/Altair에서 파이차트는 복잡할 수 있으므로 카테고리별 비교 바로 구현
+        # 2. 품목군별 비중
         with col_chart2:
             st.subheader("📦 품목군별 구매 현황")
-            # 데이터 재구조화 (Wide -> Long)
-            category_cols = ['ETC', 'CH', '건기식', '글로벌', '기타']
-            valid_cat_cols = [c for c in category_cols if c in filtered_df.columns]
-            
             if valid_cat_cols:
                 df_melted = filtered_df.melt(id_vars=['연'], value_vars=valid_cat_cols, var_name='품목군', value_name='금액')
                 
@@ -144,23 +158,20 @@ def main():
             ).properties(height=400)
             st.altair_chart(chart_line, use_container_width=True)
 
-        # --- 입고 주기 상세 (가상 데이터) ---
-        st.subheader("⏱️ 품목군별 입고 주기 (시뮬레이션)")
+        # --- 입고 주기 상세 (추정 데이터) ---
+        st.subheader("⏱️ 품목군별 입고 주기 (추정)")
         
-        # 가상의 입고 주기 데이터 생성
-        mock_cycles = {
-            'ETC': 30, 'CH': 45, '건기식': 60, '글로벌': 90, '기타': 30
-        }
-        cycle_data = pd.DataFrame(list(mock_cycles.items()), columns=['품목군', '평균입고주기(일)'])
-        
-        # 바 차트로 표시
-        chart_cycle = alt.Chart(cycle_data).mark_bar(color='orange').encode(
-            x=alt.X('품목군', sort='-y'),
-            y=alt.Y('평균입고주기(일)'),
-            tooltip=['품목군', '평균입고주기(일)']
-        ).properties(height=250)
-        st.altair_chart(chart_cycle, use_container_width=True)
-        st.info("⚠️ 현재 원본 데이터에 입고 날짜 정보가 없어, 위 입고 주기 데이터는 예시로 생성된 것입니다.")
+        if estimated_cycles:
+            cycle_data = pd.DataFrame(list(estimated_cycles.items()), columns=['품목군', '추정입고주기(일)'])
+            
+            # 바 차트로 표시
+            chart_cycle = alt.Chart(cycle_data).mark_bar(color='orange').encode(
+                x=alt.X('품목군', sort='-y'),
+                y=alt.Y('추정입고주기(일)'),
+                tooltip=['품목군', '추정입고주기(일)']
+            ).properties(height=250)
+            st.altair_chart(chart_cycle, use_container_width=True)
+            st.info("ℹ️ 입고 주기는 각 품목군의 평균 구매금액에 반비례한다고 가정하여 산출했습니다. (구매액이 높을수록 자주 입고)")
 
         # --- 데이터 테이블 ---
         with st.expander("📄 상세 데이터 보기"):
